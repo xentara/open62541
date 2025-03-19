@@ -90,6 +90,23 @@ setApplicationDescriptionFromRegisteredServer(const UA_FindServersRequest *reque
 }
 #endif
 
+static UA_Boolean
+discoveryUrlListContainsUrl(const UA_String *urls, size_t urlsSize,
+                            const UA_String *desiredUrl) {
+    if(UA_String_isEmpty(desiredUrl)) {
+        return false;
+    }
+
+    /* Check if there the desiredUrl maches any URL in the array */
+    for(size_t i = 0; i < urlsSize; ++i) {
+        if(UA_String_equal(&urls[i], desiredUrl)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void Service_FindServers(UA_Server *server, UA_Session *session,
                          const UA_FindServersRequest *request,
                          UA_FindServersResponse *response) {
@@ -389,6 +406,11 @@ UA_StatusCode
 setCurrentEndPointsArray(UA_Server *server, const UA_String endpointUrl,
                          UA_String *profileUris, size_t profileUrisSize,
                          UA_EndpointDescription **arr, size_t *arrSize) {
+    /* Check whether the enpoint URL is one of our own discovery URLS */
+    UA_Boolean knownEndpointUrl = discoveryUrlListContainsUrl(
+        server->config.applicationDescription.discoveryUrls,
+        server->config.applicationDescription.discoveryUrlsSize, &endpointUrl);
+
     /* Clone the endpoint for each discoveryURL? */
     size_t clone_times = 1;
     if(endpointUrl.length == 0)
@@ -446,9 +468,11 @@ setCurrentEndPointsArray(UA_Server *server, const UA_String endpointUrl,
                 retval |= UA_String_copy(&server->config.applicationDescription.
                                          discoveryUrls[i], &ed->endpointUrl);
             } else {
-                /* Mirror back the requested EndpointUrl and also add it to the
-                 * array of discovery urls */
+                /* Mirror back the requested EndpointUrl */
                 retval |= UA_String_copy(&endpointUrl, &ed->endpointUrl);
+            }
+            /* add it to the array of discovery urls if it is not known */
+            if(!knownEndpointUrl) {
                 retval |= UA_Array_appendCopy((void**)&ed->server.discoveryUrls,
                                               &ed->server.discoveryUrlsSize,
                                               &endpointUrl, &UA_TYPES[UA_TYPES_STRING]);
