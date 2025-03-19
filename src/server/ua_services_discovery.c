@@ -91,6 +91,37 @@ setApplicationDescriptionFromRegisteredServer(const UA_FindServersRequest *reque
 #endif
 
 static UA_Boolean
+hasCommonHostNameWithAnyUrl(const UA_String *urls, size_t urlsSize,
+                            const UA_String *desiredUrl) {
+    if(UA_String_isEmpty(desiredUrl)) {
+        return false;
+    }
+
+    UA_UInt16 port;
+    UA_String desiredUrlHostname;
+    UA_StatusCode res = UA_parseEndpointUrl(desiredUrl, &desiredUrlHostname, &port, NULL);
+    if(res != UA_STATUSCODE_GOOD) {
+        return false;
+    }
+
+    /* Check if there is any url in the list that its hostname matches the desiredUrl
+     * hostname */
+    for(size_t i = 0; i < urlsSize; ++i) {
+        UA_String currentUrlHostname;
+        res = UA_parseEndpointUrl(&urls[i], &currentUrlHostname, &port, NULL);
+        if(res != UA_STATUSCODE_GOOD) {
+            return false;
+        }
+
+        if(UA_String_equal_ignorecase(&desiredUrlHostname, &currentUrlHostname)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static UA_Boolean
 discoveryUrlListContainsUrl(const UA_String *urls, size_t urlsSize,
                             const UA_String *desiredUrl) {
     if(UA_String_isEmpty(desiredUrl)) {
@@ -411,10 +442,19 @@ setCurrentEndPointsArray(UA_Server *server, const UA_String endpointUrl,
         server->config.applicationDescription.discoveryUrls,
         server->config.applicationDescription.discoveryUrlsSize, &endpointUrl);
 
+    /* Check whether the host name is known, as required by UA Part 4:Services: 5.5.4.2 */
+    UA_Boolean knownHostname =
+        knownEndpointUrl ||
+        hasCommonHostNameWithAnyUrl(
+            server->config.applicationDescription.discoveryUrls,
+            server->config.applicationDescription.discoveryUrlsSize, &endpointUrl);
+
     /* Clone the endpoint for each discoveryURL? */
     size_t clone_times = 1;
-    if(endpointUrl.length == 0)
+    /* If the endpointUrl is not recognized, clone for every discovery url of the server */
+    if(!knownHostname) {
         clone_times = server->config.applicationDescription.discoveryUrlsSize;
+    }
 
     /* Allocate the array */
     *arr = (UA_EndpointDescription*)
@@ -464,7 +504,7 @@ setCurrentEndPointsArray(UA_Server *server, const UA_String endpointUrl,
 
             /* Set the EndpointURL */
             UA_String_clear(&ed->endpointUrl);
-            if(endpointUrl.length == 0) {
+            if(!knownHostname) {
                 retval |= UA_String_copy(&server->config.applicationDescription.
                                          discoveryUrls[i], &ed->endpointUrl);
             } else {
