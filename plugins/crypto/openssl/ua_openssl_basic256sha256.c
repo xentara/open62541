@@ -26,8 +26,8 @@
 #define UA_SECURITYPOLICY_BASIC256SHA256_SYM_ENCRYPTION_KEY_LENGTH 32
 #define UA_SECURITYPOLICY_BASIC256SHA256_SYM_ENCRYPTION_BLOCK_SIZE 16
 #define UA_SECURITYPOLICY_BASIC256SHA256_SYM_PLAIN_TEXT_BLOCK_SIZE 16
-#define UA_SECURITYPOLICY_BASIC256SHA256_MINASYMKEYLENGTH 256
-#define UA_SECURITYPOLICY_BASIC256SHA256_MAXASYMKEYLENGTH 512
+#define UA_SECURITYPOLICY_BASIC256SHA256_MINASYMKEYBITLENGTH 2048
+#define UA_SECURITYPOLICY_BASIC256SHA256_MAXASYMKEYBITLENGTH 4096
 
 typedef struct {
     EVP_PKEY *localPrivateKey;
@@ -179,6 +179,21 @@ UA_ChannelModule_New_Context(const UA_SecurityPolicy * securityPolicy,
         UA_ByteString_clear(&context->remoteCertificate);
         UA_free(context);
         return UA_STATUSCODE_BADINTERNALERROR;
+    }
+
+    /* get the public key */
+    EVP_PKEY *key = X509_get_pubkey(context->remoteCertificateX509);
+    if(key == NULL) {
+        return UA_STATUSCODE_BADINTERNALERROR;
+    }
+    const int keySize = EVP_PKEY_bits(key);
+    EVP_PKEY_free(key);
+    /* check the key size */
+    if(keySize < UA_SECURITYPOLICY_BASIC256SHA256_MINASYMKEYBITLENGTH ||
+       keySize > UA_SECURITYPOLICY_BASIC256SHA256_MAXASYMKEYBITLENGTH) {
+        UA_ByteString_clear(&context->remoteCertificate);
+        UA_free(context);
+        return UA_STATUSCODE_BADSECURITYCHECKSFAILED;
     }
 
     context->policyContext =
