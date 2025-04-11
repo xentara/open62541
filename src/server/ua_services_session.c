@@ -198,19 +198,20 @@ signCreateSessionResponse(UA_Server *server, UA_SecureChannel *channel,
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
 
-    /* Allocate a temp buffer */
-    size_t dataToSignSize =
-        request->clientCertificate.length + request->clientNonce.length;
+    /* If the clientCertificate contains a chain, the signature calculation shall be done
+     * only with the leaf Certificate. See also: OPC UA Part 4, V1.05, 5.7.2 Create
+     * Session, Table 15 - CreateSession Service Parameters */
+    const UA_ByteString clientLeafCertificate =
+        getLeafCertificate(request->clientCertificate);
+
+    /* Make the data to sign */
     UA_ByteString dataToSign;
-    retval = UA_ByteString_allocBuffer(&dataToSign, dataToSignSize);
+    retval = UA_ByteString_concatenate(&clientLeafCertificate, &request->clientNonce,
+                                       &dataToSign);
     if(retval != UA_STATUSCODE_GOOD)
         return retval; /* signatureData->signature is cleaned up with the response */
 
     /* Sign the signature */
-    memcpy(dataToSign.data, request->clientCertificate.data,
-           request->clientCertificate.length);
-    memcpy(dataToSign.data + request->clientCertificate.length,
-           request->clientNonce.data, request->clientNonce.length);
     retval = securityPolicy->asymmetricModule.cryptoModule.signatureAlgorithm.
         sign(channel->channelContext, &dataToSign, &signatureData->signature);
 
