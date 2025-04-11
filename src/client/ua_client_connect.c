@@ -164,17 +164,18 @@ signClientSignature(UA_Client *client, UA_ActivateSessionRequest *request) {
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
 
+    /* Get the leaf certificate */
+    UA_ByteString remoteCertificate = getLeafCertificate(channel->remoteCertificate);
     /* Create a temporary buffer */
-    size_t signDataSize =
-        channel->remoteCertificate.length + client->serverSessionNonce.length;
+    size_t signDataSize = remoteCertificate.length + client->serverSessionNonce.length;
     if(signDataSize > MAX_DATA_SIZE)
         return UA_STATUSCODE_BADINTERNALERROR;
     UA_Byte buf[MAX_DATA_SIZE];
     UA_ByteString signData = {signDataSize, buf};
 
     /* Sign the ClientSignature */
-    memcpy(buf, channel->remoteCertificate.data, channel->remoteCertificate.length);
-    memcpy(buf + channel->remoteCertificate.length, client->serverSessionNonce.data,
+    memcpy(buf, remoteCertificate.data, remoteCertificate.length);
+    memcpy(buf + remoteCertificate.length, client->serverSessionNonce.data,
            client->serverSessionNonce.length);
     return signAlg->sign(channel->channelContext, &signData, &sd->signature);
 }
