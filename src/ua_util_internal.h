@@ -208,6 +208,11 @@ UA_dump_hex_pkg(UA_Byte* buffer, size_t bufferLen);
  * certificates */
 UA_ByteString getLeafCertificate(UA_ByteString chain);
 
+/* Concatenate two UA byte strings into one */
+UA_StatusCode
+UA_ByteString_concatenate(const UA_ByteString *first, const UA_ByteString *second,
+                          UA_ByteString *out);
+
 /* Unions that represent any of the supported request or response message */
 typedef union {
     UA_RequestHeader requestHeader;

@@ -298,6 +298,29 @@ UA_ByteString_fromBase64(UA_ByteString *bs,
     return UA_STATUSCODE_GOOD;
 }
 
+UA_StatusCode
+UA_ByteString_concatenate(const UA_ByteString *first, const UA_ByteString *second,
+                          UA_ByteString *out) {
+    UA_ByteString_init(out);
+    if(!first) {
+        return UA_ByteString_copy(second, out);
+    }
+    if(!second) {
+        return UA_ByteString_copy(first, out);
+    }
+
+    size_t outLength = first->length + second->length;
+    UA_StatusCode retval = UA_ByteString_allocBuffer(out, outLength);
+    if(retval != UA_STATUSCODE_GOOD) {
+        return retval;
+    }
+
+    /* Concatenate the data */
+    memcpy(out->data, first->data, first->length);
+    memcpy(out->data + first->length, second->data, second->length);
+    return retval;
+}
+
 /* Key Value Map */
 
 const UA_KeyValueMap UA_KEYVALUEMAP_NULL = {0, NULL};
