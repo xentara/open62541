@@ -408,18 +408,45 @@ checkCertificateSignature(const UA_Server *server, const UA_SecurityPolicy *secu
     if(!securityPolicy)
         return UA_STATUSCODE_BADINTERNALERROR;
 
-    /* Server certificate */
-    const UA_ByteString *localCertificate = &securityPolicy->localCertificate;
-    /* Data to verify is calculated by appending the serverNonce to the local certificate */
+    /* If the serverCertificate contains a chain, the client shall calculate the signature
+     * only with the leaf Certificate. Hence the verification shall also use the leaf
+     * certificate. See also: OPC UA Part 4, V1.05, 5.7.3 Activate Session, Table 15 -
+     * ActivateSession Service Parameters */
+    /* Server leaf certificate */
+    const UA_ByteString leafCertificate =
+        getLeafCertificate(securityPolicy->localCertificate);
+    /* Data to verify is calculated by appending the serverNonce to the certificate */
     UA_ByteString dataToVerify;
-    size_t dataToVerifySize = localCertificate->length + serverNonce->length;
-    UA_StatusCode retval = UA_ByteString_allocBuffer(&dataToVerify, dataToVerifySize);
+    UA_StatusCode retval =
+        UA_ByteString_concatenate(&leafCertificate, serverNonce, &dataToVerify);
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
 
-    memcpy(dataToVerify.data, localCertificate->data, localCertificate->length);
-    memcpy(dataToVerify.data + localCertificate->length,
-           serverNonce->data, serverNonce->length);
+    /* Verify the signature */
+    retval = securityPolicy->asymmetricModule.cryptoModule.signatureAlgorithm.verify(
+        channelContext, &dataToVerify, &signature->signature);
+    UA_ByteString_clear(&dataToVerify);
+    /* Done in case of successful verification */
+    if(retval == UA_STATUSCODE_GOOD) {
+        return retval;
+    }
+
+    /* For backward compatibility a Server shall check the signature with the full chain
+     * if the check with the leaf Certificate fails. See also: OPC UA Part 4, V1.05, 5.7.3
+     * Activate Session, Table 15 - ActivateSession Service Parameters */
+
+    /* There is no chain */
+    if(leafCertificate.length == securityPolicy->localCertificate.length) {
+        return retval;
+    }
+
+    /* Data to verify */
+    retval = UA_ByteString_concatenate(&securityPolicy->localCertificate, serverNonce,
+                                       &dataToVerify);
+    if(retval != UA_STATUSCODE_GOOD)
+        return retval;
+
+    /* Verify the signature */
     retval = securityPolicy->asymmetricModule.cryptoModule.signatureAlgorithm.
         verify(channelContext, &dataToVerify, &signature->signature);
     UA_ByteString_clear(&dataToVerify);
