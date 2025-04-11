@@ -327,21 +327,40 @@ checkCreateSessionSignature(UA_Client *client, const UA_SecureChannel *channel,
         return UA_STATUSCODE_BADINTERNALERROR;
 
     const UA_SecurityPolicy *sp = channel->securityPolicy;
-    const UA_ByteString *lc = &sp->localCertificate;
+    /* The server is required to use the client leaf certificate to sign, here also the
+     * leaf certificate must be used to verify. See also : OPC UA Part 4, V1.05, 5.7.2
+     * Create Session, Table 15 - CreateSession Service Parameters */
+    const UA_ByteString leafLocalCert = getLeafCertificate(sp->localCertificate);
 
-    size_t dataToVerifySize = lc->length + client->clientSessionNonce.length;
     UA_ByteString dataToVerify = UA_BYTESTRING_NULL;
-    UA_StatusCode retval = UA_ByteString_allocBuffer(&dataToVerify, dataToVerifySize);
+    UA_StatusCode retval = UA_ByteString_concatenate(
+        &leafLocalCert, &client->clientSessionNonce, &dataToVerify);
     if(retval != UA_STATUSCODE_GOOD)
         return retval;
 
-    memcpy(dataToVerify.data, lc->data, lc->length);
-    memcpy(dataToVerify.data + lc->length, client->clientSessionNonce.data,
-           client->clientSessionNonce.length);
+    retval = sp->asymmetricModule.cryptoModule.signatureAlgorithm.verify(
+        channel->channelContext, &dataToVerify, &response->serverSignature.signature);
+    UA_ByteString_clear(&dataToVerify);
+    /* Return on successful verification */
+    if(retval == UA_STATUSCODE_GOOD)
+        return retval;
 
-    retval = sp->asymmetricModule.cryptoModule.signatureAlgorithm.
-        verify(channel->channelContext, &dataToVerify,
-               &response->serverSignature.signature);
+    /* For backward compatibility a Client shall check the signature with the full chain
+     * if the check with the leaf Certificate fails. See also: OPC UA Part 4, V1.05, 5.7.2
+     * Create Session, Table 15 - CreateSession Service Parameters */
+
+    /* If there is no chain, return the first verification try error */
+    if(leafLocalCert.length == sp->localCertificate.length) {
+        return retval;
+    }
+
+    retval = UA_ByteString_concatenate(&sp->localCertificate, &client->clientSessionNonce,
+                                       &dataToVerify);
+    if(retval != UA_STATUSCODE_GOOD)
+        return retval;
+
+    retval = sp->asymmetricModule.cryptoModule.signatureAlgorithm.verify(
+        channel->channelContext, &dataToVerify, &response->serverSignature.signature);
     UA_ByteString_clear(&dataToVerify);
     return retval;
 }
